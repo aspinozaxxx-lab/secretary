@@ -1,0 +1,17 @@
+﻿config.yaml
+.env
+*.env
+state.json
+*.tmp
+logs/
+chat_archive/
+context.md
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+build/
+dist/

@@ -1,0 +1,64 @@
+﻿telegram:
+  bot_token: "PUT_TELEGRAM_BOT_TOKEN_HERE"
+  notify_chat_id:
+  notify_user_id:
+  # Пустой список означает: принимать все чаты, куда добавили бота.
+  # Заполненный список включает whitelist и ограничивает обработку только этими chat_id.
+  allowed_chat_ids: []
+  bot_username: "PUT_BOT_USERNAME_HERE"
+
+user:
+  telegram_user_id: null
+  telegram_usernames:
+    - "your_username_without_at"
+  full_name: "Ваше ФИО"
+  aliases:
+    - "Ваше имя"
+    - "Ваш ник"
+  context_file: "context.md"
+
+codex:
+  # Можно оставить "codex", если команда доступна в PATH.
+  # На Windows можно указать полный путь, например:
+  # "C:\\Users\\<user>\\AppData\\Roaming\\npm\\codex.cmd"
+  command: "codex"
+  timeout_seconds: 120
+  prompt_max_chars: 24000
+
+decision:
+  min_confidence_to_notify: 0.7
+  batch_enabled: true
+  batch_max_messages: 30
+  batch_max_chars: 12000
+  batch_max_age_seconds: 90
+  batch_flush_interval_seconds: 5
+
+storage:
+  state_file: "state.json"
+  history_max_messages_per_chat: 500
+
+logging:
+  level: "INFO"
+  file: "logs/secretary.log"
+
+secretary:
+  enable_private_assistant: true
+  max_context_messages: 80
+  max_answer_chars: 3500
+
+archive:
+  enabled: true
+  dir: "chat_archive"
+  format: "jsonl"
+  also_write_markdown: true
+
+summary:
+  enabled: true
+  times:
+    - "13:00"
+    - "18:00"
+  timezone: "Europe/Moscow"
+  lookback_hours: 6
+  max_messages: 200
+  target_chat_id: null
+  include_low_priority: true
