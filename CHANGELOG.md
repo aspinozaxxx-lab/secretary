@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 0.4.0
+
+- Proekt pereveden v headless Ubuntu/systemd rezhim bez Windows tray/exe sloya.
+- Udalena PySide6/PyInstaller zavisimost i Windows build/deploy/restart scripts.
+- Dobavleny systemd unit i server bootstrap/deploy scripts dlya /opt/secretary-bot.
+- Dobavlen GitHub Actions workflow dlya test, SSH deploy i restart service po push v main.
+- README obnovlen pod Ubuntu runtime, systemd service, GitHub Secrets i proverku Telegram komand.
+
 ## 0.3.1
 
 - Dobavlena registratsiya Telegram menu komand cherez setMyCommands pri starte bota.

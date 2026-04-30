@@ -93,7 +93,6 @@ class CodexClient:
                 timeout=self.timeout_seconds,
                 cwd=self.root_dir,
                 check=False,
-                **_hidden_subprocess_kwargs(),
             )
         except subprocess.TimeoutExpired as exc:
             LOGGER.error("Codex %s timeout after %s seconds", label, self.timeout_seconds)
@@ -162,7 +161,7 @@ def _resolve_command_executable(command: str) -> str | None:
 def _codex_not_found_message(command: str) -> str:
     return (
         "Не найдена команда Codex. Проверь codex.command в config.yaml. "
-        "Для Windows можно указать полный путь к codex.cmd"
+        "На Ubuntu убедись, что Codex CLI установлен и доступен в PATH."
     )
 
 
@@ -288,18 +287,3 @@ def _extract_json(raw: str) -> dict[str, Any]:
                         return loaded
         start = raw.find("{", start + 1)
     raise ValueError("JSON object not found")
-
-
-def _hidden_subprocess_kwargs() -> dict[str, Any]:
-    if os.name != "nt":
-        return {}
-    kwargs: dict[str, Any] = {}
-    # Skryvaem konsolnoe okno Codex na Windows pri zapuske iz tray exe.
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    if creationflags:
-        kwargs["creationflags"] = creationflags
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startupinfo.wShowWindow = 0
-    kwargs["startupinfo"] = startupinfo
-    return kwargs

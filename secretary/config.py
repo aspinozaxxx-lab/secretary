@@ -171,9 +171,12 @@ def load_config(config_path: Path) -> AppConfig:
         max_context_messages=int(secretary_raw.get("max_context_messages", 80)),
         max_answer_chars=int(secretary_raw.get("max_answer_chars", 3500)),
     )
+    archive_dir_value = archive_raw.get("dir", "chat_archive")
+    if archive_dir_value in (None, ""):
+        archive_dir_value = "chat_archive"
     archive = ArchiveConfig(
         enabled=bool(archive_raw.get("enabled", True)),
-        dir=_resolve_path(root_dir, archive_raw.get("dir", "chat_archive")),
+        dir=_resolve_path(root_dir, archive_dir_value),
         format=str(archive_raw.get("format", "jsonl")).strip().lower() or "jsonl",
         also_write_markdown=bool(archive_raw.get("also_write_markdown", True)),
     )

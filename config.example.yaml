@@ -19,8 +19,6 @@ user:
 
 codex:
   # Можно оставить "codex", если команда доступна в PATH.
-  # На Windows можно указать полный путь, например:
-  # "C:\\Users\\<user>\\AppData\\Roaming\\npm\\codex.cmd"
   command: "codex"
   timeout_seconds: 120
   prompt_max_chars: 24000
