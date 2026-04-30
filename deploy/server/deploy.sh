@@ -31,6 +31,7 @@ tar \
 
 find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 tar -C "$TMP_APP" -cf - . | tar -C "$APP_DIR" -xf -
+chown -R root:root "$APP_DIR"
 
 if [ ! -f "$VENV_DIR/pyvenv.cfg" ] || ! grep -q "include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg"; then
     rm -rf "$VENV_DIR"
