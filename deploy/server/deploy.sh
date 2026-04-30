@@ -32,12 +32,16 @@ tar \
 find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 tar -C "$TMP_APP" -cf - . | tar -C "$APP_DIR" -xf -
 
-if [ ! -d "$VENV_DIR" ]; then
-    python3 -m venv "$VENV_DIR"
+if [ ! -f "$VENV_DIR/pyvenv.cfg" ] || ! grep -q "include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg"; then
+    rm -rf "$VENV_DIR"
+    python3 -m venv --system-site-packages "$VENV_DIR"
 fi
 
-"$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
-"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
+"$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel || true
+if ! "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"; then
+    echo "WARNING: pip install failed, checking apt-provided Python packages"
+    "$VENV_DIR/bin/python" -c "import requests, yaml; print('apt-provided Python dependencies ok')"
+fi
 
 install -m 0644 "$UNIT_SOURCE" "$UNIT_TARGET"
 systemctl daemon-reload

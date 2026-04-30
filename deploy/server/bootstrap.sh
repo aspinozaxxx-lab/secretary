@@ -14,16 +14,17 @@ export DEBIAN_FRONTEND=noninteractive
 mkdir -p "$APP_DIR" "$RUNTIME_DIR/logs" "$RUNTIME_DIR/chat_archive"
 
 apt-get update
-apt-get install -y python3 python3-venv python3-pip git curl ca-certificates nodejs npm tar
+apt-get install -y python3 python3-venv python3-pip python3-requests python3-yaml git curl ca-certificates nodejs npm tar
 
-if [ ! -d "$VENV_DIR" ]; then
-    python3 -m venv "$VENV_DIR"
+if [ ! -f "$VENV_DIR/pyvenv.cfg" ] || ! grep -q "include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg"; then
+    rm -rf "$VENV_DIR"
+    python3 -m venv --system-site-packages "$VENV_DIR"
 fi
 
-"$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
+"$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel || true
 
 if ! command -v codex >/dev/null 2>&1; then
-    npm install -g @openai/codex
+    npm install -g @openai/codex || echo "WARNING: Codex CLI was not installed automatically"
 fi
 
 install -m 0644 "$UNIT_SOURCE" "$UNIT_TARGET"
