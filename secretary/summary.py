@@ -9,6 +9,7 @@ from secretary.archive import ChatArchive
 from secretary.chat_history import format_history
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig
+from secretary.context_retriever import ContextRetriever
 from secretary.events import EventBus, emit_if_present
 from secretary.state import StateStore
 from secretary.telegram_client import TelegramClient
@@ -25,6 +26,7 @@ class SummaryService:
         codex_client: CodexClient,
         archive: ChatArchive,
         event_bus: EventBus | None = None,
+        context_retriever: ContextRetriever | None = None,
     ) -> None:
         self.config = config
         self.state = state
@@ -32,6 +34,7 @@ class SummaryService:
         self.codex_client = codex_client
         self.archive = archive
         self.event_bus = event_bus
+        self.context_retriever = context_retriever
         self._last_check_monotonic = 0.0
 
     def send_due_summaries(self) -> None:
@@ -73,7 +76,8 @@ class SummaryService:
             limit=self.config.summary.max_messages,
             include_private=False,
         )
-        prompt = self._build_prompt(messages, now, schedule_time)
+        database_context = self._database_prompt()
+        prompt = self._build_prompt(messages, now, schedule_time, database_context)
         result = self.codex_client.answer_secretary_question(prompt)
         if result.error:
             text = f"Не смог подготовить summary: {result.error}"
@@ -89,7 +93,7 @@ class SummaryService:
         emit_if_present(self.event_bus, "system", f"Summary отправлено ({schedule_time})", direction="system")
         return True
 
-    def _build_prompt(self, messages: list, now: datetime, schedule_time: str) -> str:
+    def _build_prompt(self, messages: list, now: datetime, schedule_time: str, database_context: str) -> str:
         return f"""
 Ty lokalnyy Telegram-sekretar polzovatelya. Sdelay kratkoe mini-summary po rabochim chatam na russkom.
 
@@ -106,6 +110,9 @@ Parametry:
 Lokalnyy arhiv:
 {self.archive.describe_for_prompt()}
 
+SQLite baza i vyborka:
+{database_context}
+
 Soobscheniya za period:
 {format_history(messages)}
 
@@ -116,6 +123,14 @@ Instruktsii:
 - Esli vazhnogo net ili dannyh malo, skazhi eto pryamo.
 - Ne raskryvay bot token/config secrets.
 """.strip()
+
+    def _database_prompt(self) -> str:
+        if self.context_retriever is None:
+            return "SQLite baza istorii ne podklyuchena."
+        return self.context_retriever.for_summary(
+            self.config.summary.lookback_hours,
+            self.config.summary.max_messages,
+        )
 
 
 def _scheduled_datetime(now: datetime, schedule_time: str) -> datetime:

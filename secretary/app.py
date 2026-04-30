@@ -8,6 +8,8 @@ from secretary.archive import ChatArchive
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig, load_config
 from secretary.context_manager import decode_context_bytes, is_context_file_name, replace_context_file
+from secretary.context_retriever import ContextRetriever
+from secretary.database import ChatDatabase
 from secretary.decision_engine import DecisionEngine
 from secretary.events import EventBus, emit_if_present
 from secretary.logging_setup import setup_logging
@@ -28,6 +30,9 @@ TELEGRAM_COMMANDS = [
     {"command": "whoami", "description": "Показать мой user_id и chat_id"},
     {"command": "summary", "description": "Сделать саммари по чатам сейчас"},
     {"command": "context", "description": "Скачать текущий context.md"},
+    {"command": "dbstatus", "description": "Показать состояние базы истории"},
+    {"command": "search", "description": "Поиск по истории чатов"},
+    {"command": "importstatus", "description": "Показать статус импорта"},
     {"command": "testnotify", "description": "Проверить отправку уведомлений"},
     {"command": "testdecision", "description": "Проверить путь decision → notification"},
     {"command": "reload", "description": "Перечитать config.yaml и context.md"},
@@ -47,6 +52,8 @@ class SecretaryApp:
         )
         self.state.load()
         self.archive = ChatArchive(self.config)
+        self.database = self._create_database()
+        self.context_retriever = ContextRetriever(self.config, self.database)
         self.loop = self._build_loop()
 
     def run(self) -> None:
@@ -64,6 +71,8 @@ class SecretaryApp:
         self.state.path = self.config.storage.state_file
         self.state.history_limit_per_chat = self.config.storage.history_limit_per_chat
         self.archive = ChatArchive(self.config)
+        self.database = self._create_database()
+        self.context_retriever = ContextRetriever(self.config, self.database)
         self._apply_runtime_components(self.loop)
 
     def _load_and_apply_config(self) -> AppConfig:
@@ -85,6 +94,7 @@ class SecretaryApp:
             check_scheduled_tasks=self._check_scheduled_tasks,
             event_bus=self.event_bus,
             archive=self.archive,
+            database=self.database,
         )
 
     def _apply_runtime_components(self, loop: PollingLoop) -> None:
@@ -93,8 +103,17 @@ class SecretaryApp:
         loop.decision_engine = decision_engine
         loop.notifier = notifier
         loop.archive = self.archive
+        loop.database = self.database
         self.assistant = assistant
-        self.summary_service = SummaryService(self.config, self.state, client, codex_client, self.archive, self.event_bus)
+        self.summary_service = SummaryService(
+            self.config,
+            self.state,
+            client,
+            codex_client,
+            self.archive,
+            self.event_bus,
+            self.context_retriever,
+        )
 
     def _create_runtime_components(
         self,
@@ -107,12 +126,31 @@ class SecretaryApp:
             self.config.codex.prompt_max_chars,
             event_bus=self.event_bus,
         )
-        decision_engine = DecisionEngine(self.config, codex_client, self.archive)
+        decision_engine = DecisionEngine(self.config, codex_client, self.archive, self.context_retriever)
         notifier = Notifier(client, self.config.telegram, self.event_bus)
-        assistant = SecretaryAssistant(self.config, self.state, codex_client, self.archive)
+        assistant = SecretaryAssistant(self.config, self.state, codex_client, self.archive, self.context_retriever)
         self.assistant = assistant
-        self.summary_service = SummaryService(self.config, self.state, client, codex_client, self.archive, self.event_bus)
+        self.summary_service = SummaryService(
+            self.config,
+            self.state,
+            client,
+            codex_client,
+            self.archive,
+            self.event_bus,
+            self.context_retriever,
+        )
         return client, codex_client, decision_engine, notifier, assistant
+
+    def _create_database(self) -> ChatDatabase | None:
+        if not self.config.database.enabled:
+            return None
+        database = ChatDatabase(
+            self.config.database.path or (self.config.root_dir / "chat_history.sqlite3"),
+            self.config.database.media_dir or (self.config.root_dir / "media"),
+            self.config.database.fts_enabled,
+        )
+        database.init_db()
+        return database
 
     def _check_scheduled_tasks(self) -> None:
         if hasattr(self, "summary_service"):
@@ -201,12 +239,24 @@ class SecretaryApp:
             "/testdecision",
             "/summary",
             "/context",
+            "/dbstatus",
+            "/search",
+            "/importstatus",
             "/setcommands",
         }:
             return False
 
         client = self.loop.client
-        owner_only = {"/testnotify", "/testdecision", "/summary", "/context", "/setcommands"}
+        owner_only = {
+            "/testnotify",
+            "/testdecision",
+            "/summary",
+            "/context",
+            "/dbstatus",
+            "/search",
+            "/importstatus",
+            "/setcommands",
+        }
         if command in owner_only and not self._is_owner(message):
             client.send_message(message.chat.chat_id, "Нет доступа.", reply_to_message_id=message.message_id)
             return True
@@ -271,6 +321,24 @@ class SecretaryApp:
             )
         elif command == "/context":
             self._send_context_file(message)
+        elif command == "/dbstatus":
+            client.send_message(
+                message.chat.chat_id,
+                self._dbstatus_text(),
+                reply_to_message_id=message.message_id,
+            )
+        elif command == "/search":
+            client.send_message(
+                message.chat.chat_id,
+                self._search_text(message.text),
+                reply_to_message_id=message.message_id,
+            )
+        elif command == "/importstatus":
+            client.send_message(
+                message.chat.chat_id,
+                self._importstatus_text(),
+                reply_to_message_id=message.message_id,
+            )
         elif command == "/setcommands":
             ok = self.register_telegram_commands()
             client.send_message(
@@ -421,6 +489,7 @@ class SecretaryApp:
             f"Summary: {'включено' if self.config.summary.enabled else 'выключено'} "
             f"({', '.join(self.config.summary.times or [])})\n"
             f"Context management: {'включено' if self.config.context_management.enabled else 'выключено'}\n"
+            f"SQLite history: {'включена' if self.database is not None else 'выключена'}\n"
             f"Telegram commands menu: {self.commands_menu_status}\n"
             f"Конфиг: {self.config.path}"
         )
@@ -439,6 +508,56 @@ class SecretaryApp:
             lines.append(f"Показаны последние {len(chats)} из {self.state.known_chats_count()}.")
         return "\n".join(lines)
 
+    def _dbstatus_text(self) -> str:
+        if self.database is None:
+            return "База истории отключена."
+        stats = self.database.stats()
+        return (
+            "База истории:\n"
+            f"path: {stats.path}\n"
+            f"чаты: {stats.chats}\n"
+            f"сообщения: {stats.messages}\n"
+            f"attachments: {stats.attachments}\n"
+            f"FTS: {'да' if stats.fts_enabled else 'нет'}\n"
+            f"media dir: {stats.media_dir}\n"
+            f"последний импорт: {stats.last_import_at or 'нет'}"
+        )
+
+    def _search_text(self, text: str) -> str:
+        if self.database is None:
+            return "База истории отключена."
+        query = (text or "").split(maxsplit=1)
+        if len(query) < 2 or not query[1].strip():
+            return "Использование: /search текст для поиска"
+        rows = self.database.search_messages(query[1], limit=10)
+        if not rows:
+            return "Ничего не найдено."
+        lines = ["Найдено:"]
+        for row in rows:
+            chat = row.chat_title or str(row.chat_id)
+            author = row.sender_name or row.sender_username or "неизвестно"
+            snippet = " ".join((row.text or "[без текста]").split())
+            if len(snippet) > 180:
+                snippet = snippet[:179].rstrip() + "…"
+            lines.append(f"- {row.date or 'без даты'} | {chat} | {author}: {snippet}")
+        return "\n".join(lines)
+
+    def _importstatus_text(self) -> str:
+        if self.database is None:
+            return "База истории отключена."
+        status = self.database.get_import_status()
+        if not status:
+            return "Импорт еще не выполнялся."
+        return (
+            "Последний импорт:\n"
+            f"source: {status.get('source')}\n"
+            f"время: {status.get('imported_at')}\n"
+            f"чаты: {status.get('chats')}\n"
+            f"сообщения: {status.get('messages')}\n"
+            f"attachments: {status.get('attachments')}\n"
+            f"итог: {status.get('summary')}"
+        )
+
 
 def _help_text() -> str:
     return (
@@ -450,6 +569,9 @@ def _help_text() -> str:
         "/testdecision — проверить путь decision -> notifier\n"
         "/summary — отправить summary вручную\n"
         "/context — скачать текущий context.md\n"
+        "/dbstatus — состояние базы истории\n"
+        "/search текст — поиск по истории чатов\n"
+        "/importstatus — статус последнего импорта\n"
         "/setcommands — обновить меню команд Telegram\n"
         "/reload — перечитать конфигурацию и контекст\n"
         "/whoami — показать chat_id и user_id\n"

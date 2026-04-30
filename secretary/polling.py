@@ -9,6 +9,7 @@ from requests import HTTPError, ReadTimeout, RequestException
 
 from secretary.batching import split_message_batches
 from secretary.archive import ChatArchive
+from secretary.database import ChatDatabase
 from secretary.decision_engine import DecisionEngine
 from secretary.events import EventBus, emit_if_present
 from secretary.models import DecisionResult, TelegramMessage
@@ -33,6 +34,7 @@ class PollingLoop:
         check_scheduled_tasks: Callable[[], None] | None = None,
         event_bus: EventBus | None = None,
         archive: ChatArchive | None = None,
+        database: ChatDatabase | None = None,
     ) -> None:
         self.client = client
         self.state = state
@@ -45,6 +47,7 @@ class PollingLoop:
         self.check_scheduled_tasks = check_scheduled_tasks
         self.event_bus = event_bus
         self.archive = archive
+        self.database = database
         self.running = True
         self._stop_event = threading.Event()
         self._last_conflict_log_at = 0.0
@@ -117,6 +120,20 @@ class PollingLoop:
                             "system",
                             "Сообщение добавлено в локальный архив",
                             direction="system",
+                            chat_id=message.chat.chat_id,
+                            chat_title=message.chat.title,
+                            author=_message_author(message),
+                        )
+                if self.database is not None:
+                    try:
+                        self.database.insert_telegram_message(message)
+                    except Exception:
+                        LOGGER.exception("SQLite message save failed")
+                        emit_if_present(
+                            self.event_bus,
+                            "error",
+                            "Не удалось записать сообщение в SQLite",
+                            direction="error",
                             chat_id=message.chat.chat_id,
                             chat_title=message.chat.title,
                             author=_message_author(message),
@@ -212,12 +229,19 @@ class PollingLoop:
                 chat_id=first.chat.chat_id,
                 chat_title=first.chat.title,
             )
-            additional_context = self.state.get_history_before(
-                chat_id,
-                before_message_id=before_message_id,
-                limit=request.limit,
-                keywords=request.keywords,
-            )
+            if self.database is not None:
+                additional_context = self.database.get_messages_around(
+                    chat_id,
+                    before_message_id=before_message_id,
+                    limit=request.limit,
+                )
+            else:
+                additional_context = self.state.get_history_before(
+                    chat_id,
+                    before_message_id=before_message_id,
+                    limit=request.limit,
+                    keywords=request.keywords,
+                )
             note = (
                 "Dopolnitelnyy kontekst iz lokalnoy istorii:"
                 if additional_context

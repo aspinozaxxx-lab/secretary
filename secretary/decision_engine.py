@@ -6,16 +6,24 @@ from secretary.archive import ChatArchive
 from secretary.chat_history import format_history
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig
+from secretary.context_retriever import ContextRetriever
 from secretary.models import BatchDecisionResult, ChatHistoryEntry, DecisionResult, TelegramMessage
 
 LOGGER = logging.getLogger(__name__)
 
 
 class DecisionEngine:
-    def __init__(self, config: AppConfig, codex_client: CodexClient, archive: ChatArchive | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        codex_client: CodexClient,
+        archive: ChatArchive | None = None,
+        context_retriever: ContextRetriever | None = None,
+    ) -> None:
         self.config = config
         self.codex_client = codex_client
         self.archive = archive
+        self.context_retriever = context_retriever
 
     def decide(self, message: TelegramMessage, history: list[ChatHistoryEntry]) -> DecisionResult:
         local = self.local_rules(message)
@@ -179,6 +187,9 @@ Chat:
 Lokalnyy arhiv:
 {self._archive_prompt(message.chat.chat_id)}
 
+SQLite baza i vyborka:
+{self._database_prompt_for_message(message)}
+
 Poslednie soobscheniya chata:
 {format_history(history)}
 
@@ -258,6 +269,9 @@ Chat:
 Lokalnyy arhiv:
 {self._archive_prompt(first.chat.chat_id)}
 
+SQLite baza i vyborka:
+{self._database_prompt_for_batch(messages)}
+
 Istoriya chata do pachki:
 {format_history(history)}
 
@@ -272,6 +286,16 @@ Pachka soobscheniy:
         if self.archive is None:
             return "Lokalnyy arhiv chatov ne podklyuchen."
         return self.archive.describe_for_prompt(current_chat_id=current_chat_id)
+
+    def _database_prompt_for_message(self, message: TelegramMessage) -> str:
+        if self.context_retriever is None:
+            return "SQLite baza istorii ne podklyuchena."
+        return self.context_retriever.for_message(message)
+
+    def _database_prompt_for_batch(self, messages: list[TelegramMessage]) -> str:
+        if self.context_retriever is None:
+            return "SQLite baza istorii ne podklyuchena."
+        return self.context_retriever.for_batch(messages)
 
 
 def _format_batch_message(message: TelegramMessage) -> str:

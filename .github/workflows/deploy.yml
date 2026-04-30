@@ -39,8 +39,11 @@ jobs:
           import secretary.codex_client
           import secretary.config
           import secretary.context_manager
+          import secretary.context_retriever
+          import secretary.database
           import secretary.decision_engine
           import secretary.events
+          import secretary.export_importer
           import secretary.logging_setup
           import secretary.models
           import secretary.notifier
@@ -80,6 +83,13 @@ jobs:
             --exclude='state.json' \
             --exclude='logs' \
             --exclude='chat_archive' \
+            --exclude='runtime' \
+            --exclude='media' \
+            --exclude='Download' \
+            --exclude='*.db' \
+            --exclude='*.sqlite' \
+            --exclude='*.sqlite3' \
+            --exclude='*.sqlite3-*' \
             --exclude='build' \
             --exclude='dist' \
             --exclude='__pycache__' \

@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 0.4.2
+
+- Dobavlena SQLite-baza istorii chatov chat_history.sqlite3 s tablitsami chats, users, messages i attachments.
+- Dobavlen import Telegram Desktop HTML export s kopirovaniem media v runtime/media i idempotentnoy zapisyu.
+- Dobavlen ContextRetriever dlya SQLite-vyborok v Codex prompts dlya decision, private assistant i summary.
+- Dobavleny owner-only komandy /dbstatus, /search i /importstatus.
+- Obnovleny deploy exclusions, README i config.example.yaml, chtoby baza/media ostavalis runtime-dannymi.
+
 ## 0.4.1
 
 - Dobavlena owner-only komanda /context dlya otpravki tekuschego context.md v Telegram.

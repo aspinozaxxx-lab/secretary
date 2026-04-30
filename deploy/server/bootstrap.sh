@@ -11,7 +11,7 @@ UNIT_TARGET="/etc/systemd/system/secretary-bot.service"
 
 export DEBIAN_FRONTEND=noninteractive
 
-mkdir -p "$APP_DIR" "$RUNTIME_DIR/logs" "$RUNTIME_DIR/chat_archive"
+mkdir -p "$APP_DIR" "$RUNTIME_DIR/logs" "$RUNTIME_DIR/chat_archive" "$RUNTIME_DIR/media"
 
 apt-get update
 apt-get install -y python3 python3-venv python3-pip python3-requests python3-yaml git curl ca-certificates nodejs npm tar

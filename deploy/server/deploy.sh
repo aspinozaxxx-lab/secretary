@@ -9,7 +9,7 @@ SOURCE_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 UNIT_SOURCE="$SOURCE_DIR/deploy/systemd/secretary-bot.service"
 UNIT_TARGET="/etc/systemd/system/secretary-bot.service"
 
-mkdir -p "$APP_DIR" "$RUNTIME_DIR/logs" "$RUNTIME_DIR/chat_archive"
+mkdir -p "$APP_DIR" "$RUNTIME_DIR/logs" "$RUNTIME_DIR/chat_archive" "$RUNTIME_DIR/media"
 
 TMP_APP="$(mktemp -d)"
 cleanup() {
@@ -25,6 +25,13 @@ tar \
     --exclude='./state.json' \
     --exclude='./logs' \
     --exclude='./chat_archive' \
+    --exclude='./runtime' \
+    --exclude='./media' \
+    --exclude='./Download' \
+    --exclude='*.db' \
+    --exclude='*.sqlite' \
+    --exclude='*.sqlite3' \
+    --exclude='*.sqlite3-*' \
     --exclude='./build' \
     --exclude='./dist' \
     --exclude='./__pycache__' \
@@ -63,7 +70,7 @@ else
     echo "Kept existing runtime/context.md"
 fi
 
-echo "Runtime state.json, logs and chat_archive were not copied or removed"
+echo "Runtime state.json, logs, chat_archive, chat_history.sqlite3 and media were not copied or removed"
 
 systemctl restart secretary-bot.service
 sleep 3

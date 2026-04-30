@@ -89,6 +89,19 @@ class ContextManagementConfig:
 
 
 @dataclass(slots=True)
+class DatabaseConfig:
+    enabled: bool = True
+    path: Path | None = None
+    media_dir: Path | None = None
+    fts_enabled: bool = True
+
+
+@dataclass(slots=True)
+class TelegramExportConfig:
+    import_dir: Path | None = None
+
+
+@dataclass(slots=True)
 class AppConfig:
     telegram: TelegramConfig
     user: UserConfig
@@ -100,6 +113,8 @@ class AppConfig:
     archive: ArchiveConfig
     summary: SummaryConfig
     context_management: ContextManagementConfig
+    database: DatabaseConfig
+    telegram_export: TelegramExportConfig
     path: Path
     root_dir: Path
     context_text: str = ""
@@ -134,6 +149,12 @@ def load_config(config_path: Path) -> AppConfig:
     context_management_raw = raw.get("context_management") or {}
     if not isinstance(context_management_raw, dict):
         raise ValueError("Missing or invalid section: context_management")
+    database_raw = raw.get("database") or {}
+    if not isinstance(database_raw, dict):
+        raise ValueError("Missing or invalid section: database")
+    telegram_export_raw = raw.get("telegram_export") or {}
+    if not isinstance(telegram_export_raw, dict):
+        raise ValueError("Missing or invalid section: telegram_export")
 
     telegram = TelegramConfig(
         bot_token=_required_str(telegram_raw, "bot_token"),
@@ -205,6 +226,22 @@ def load_config(config_path: Path) -> AppConfig:
         max_upload_bytes=int(context_management_raw.get("max_upload_bytes", 262144)),
         backup_dir=_resolve_path(root_dir, context_management_raw.get("backup_dir", "context.backups")),
     )
+    database_path_value = database_raw.get("path", "chat_history.sqlite3")
+    if database_path_value in (None, ""):
+        database_path_value = "chat_history.sqlite3"
+    database_media_value = database_raw.get("media_dir", "media")
+    if database_media_value in (None, ""):
+        database_media_value = "media"
+    database = DatabaseConfig(
+        enabled=bool(database_raw.get("enabled", True)),
+        path=_resolve_path(root_dir, database_path_value),
+        media_dir=_resolve_path(root_dir, database_media_value),
+        fts_enabled=bool(database_raw.get("fts_enabled", True)),
+    )
+    import_dir_value = telegram_export_raw.get("import_dir")
+    telegram_export = TelegramExportConfig(
+        import_dir=_resolve_path(root_dir, import_dir_value) if import_dir_value not in (None, "") else None,
+    )
 
     context_text = ""
     if user.context_file.exists():
@@ -221,6 +258,8 @@ def load_config(config_path: Path) -> AppConfig:
         archive=archive,
         summary=summary,
         context_management=context_management,
+        database=database,
+        telegram_export=telegram_export,
         path=config_path,
         root_dir=root_dir,
         context_text=context_text,

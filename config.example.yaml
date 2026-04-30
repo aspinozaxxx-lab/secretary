@@ -55,6 +55,15 @@ archive:
   format: "jsonl"
   also_write_markdown: true
 
+database:
+  enabled: true
+  path: "chat_history.sqlite3"
+  media_dir: "media"
+  fts_enabled: true
+
+telegram_export:
+  import_dir: null
+
 summary:
   enabled: true
   times:
