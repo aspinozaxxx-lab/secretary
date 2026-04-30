@@ -28,6 +28,7 @@ class PollingLoop:
         notifier: Notifier,
         is_allowed_message: Callable[[TelegramMessage], bool],
         handle_command: Callable[[TelegramMessage], bool],
+        handle_document: Callable[[TelegramMessage], bool],
         handle_private_text: Callable[[TelegramMessage], bool],
         check_scheduled_tasks: Callable[[], None] | None = None,
         event_bus: EventBus | None = None,
@@ -39,6 +40,7 @@ class PollingLoop:
         self.notifier = notifier
         self.is_allowed_message = is_allowed_message
         self.handle_command = handle_command
+        self.handle_document = handle_document
         self.handle_private_text = handle_private_text
         self.check_scheduled_tasks = check_scheduled_tasks
         self.event_bus = event_bus
@@ -140,6 +142,8 @@ class PollingLoop:
                 if message.text:
                     self.state.add_message(message)
                 if message.is_command and self.handle_command(message):
+                    continue
+                if message.document_file_id and self.handle_document(message):
                     continue
                 if self.handle_private_text(message):
                     continue

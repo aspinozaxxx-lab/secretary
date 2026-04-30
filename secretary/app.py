@@ -7,6 +7,7 @@ from pathlib import Path
 from secretary.archive import ChatArchive
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig, load_config
+from secretary.context_manager import decode_context_bytes, is_context_file_name, replace_context_file
 from secretary.decision_engine import DecisionEngine
 from secretary.events import EventBus, emit_if_present
 from secretary.logging_setup import setup_logging
@@ -26,6 +27,7 @@ TELEGRAM_COMMANDS = [
     {"command": "chats", "description": "Показать известные чаты"},
     {"command": "whoami", "description": "Показать мой user_id и chat_id"},
     {"command": "summary", "description": "Сделать саммари по чатам сейчас"},
+    {"command": "context", "description": "Скачать текущий context.md"},
     {"command": "testnotify", "description": "Проверить отправку уведомлений"},
     {"command": "testdecision", "description": "Проверить путь decision → notification"},
     {"command": "reload", "description": "Перечитать config.yaml и context.md"},
@@ -78,6 +80,7 @@ class SecretaryApp:
             notifier=notifier,
             is_allowed_message=self._is_allowed_message,
             handle_command=self._handle_command,
+            handle_document=self._handle_document,
             handle_private_text=self._handle_private_text,
             check_scheduled_tasks=self._check_scheduled_tasks,
             event_bus=self.event_bus,
@@ -197,12 +200,13 @@ class SecretaryApp:
             "/testnotify",
             "/testdecision",
             "/summary",
+            "/context",
             "/setcommands",
         }:
             return False
 
         client = self.loop.client
-        owner_only = {"/testnotify", "/testdecision", "/summary", "/setcommands"}
+        owner_only = {"/testnotify", "/testdecision", "/summary", "/context", "/setcommands"}
         if command in owner_only and not self._is_owner(message):
             client.send_message(message.chat.chat_id, "Нет доступа.", reply_to_message_id=message.message_id)
             return True
@@ -265,6 +269,8 @@ class SecretaryApp:
                 "Summary отправлено." if ok else "Summary не отправлено, смотри лог.",
                 reply_to_message_id=message.message_id,
             )
+        elif command == "/context":
+            self._send_context_file(message)
         elif command == "/setcommands":
             ok = self.register_telegram_commands()
             client.send_message(
@@ -273,6 +279,106 @@ class SecretaryApp:
                 reply_to_message_id=message.message_id,
             )
         return True
+
+    def _send_context_file(self, message: TelegramMessage) -> None:
+        context_path = self.config.user.context_file
+        max_size = self.config.context_management.max_upload_bytes
+        if not self.config.context_management.enabled:
+            self.loop.client.send_message(
+                message.chat.chat_id,
+                "Управление context.md отключено.",
+                reply_to_message_id=message.message_id,
+            )
+            return
+        if not context_path.exists():
+            self.loop.client.send_message(
+                message.chat.chat_id,
+                f"Файл context.md не найден: {context_path}",
+                reply_to_message_id=message.message_id,
+            )
+            return
+        size = context_path.stat().st_size
+        if size > max_size:
+            self.loop.client.send_message(
+                message.chat.chat_id,
+                f"Файл context.md слишком большой для отправки: {size} байт, максимум {max_size} байт.",
+                reply_to_message_id=message.message_id,
+            )
+            return
+        self.loop.client.send_document(
+            message.chat.chat_id,
+            context_path,
+            caption="Текущий context.md. Отредактируй и отправь обратно файлом с именем context.md.",
+            reply_to_message_id=message.message_id,
+        )
+
+    def _handle_document(self, message: TelegramMessage) -> bool:
+        if not message.document_file_id:
+            return False
+        if not is_context_file_name(message.document_file_name):
+            return False
+        if message.chat.chat_type != "private":
+            LOGGER.info(
+                "Context upload ignored outside private chat: chat_id=%s message_id=%s",
+                message.chat.chat_id,
+                message.message_id,
+            )
+            return True
+        if not self._is_owner(message):
+            self.loop.client.send_message(message.chat.chat_id, "Нет доступа.", reply_to_message_id=message.message_id)
+            return True
+        if not self.config.context_management.enabled:
+            self.loop.client.send_message(
+                message.chat.chat_id,
+                "Управление context.md отключено.",
+                reply_to_message_id=message.message_id,
+            )
+            return True
+        try:
+            result = self._update_context_from_document(message)
+        except Exception as exc:
+            LOGGER.warning("Context update failed: %s", exc)
+            self.loop.client.send_message(
+                message.chat.chat_id,
+                f"context.md не обновлен: {exc}",
+                reply_to_message_id=message.message_id,
+            )
+            return True
+
+        backup_text = result.backup_path.name if result.backup_path is not None else "старого файла не было"
+        LOGGER.info(
+            "context.md updated from Telegram document: size=%s backup=%s",
+            result.size_bytes,
+            backup_text,
+        )
+        self.reload()
+        response_text = (
+            f"context.md обновлен, backup создан: {backup_text}"
+            if result.backup_path is not None
+            else "context.md обновлен, старого файла для backup не было."
+        )
+        self.loop.client.send_message(
+            message.chat.chat_id,
+            response_text,
+            reply_to_message_id=message.message_id,
+        )
+        return True
+
+    def _update_context_from_document(self, message: TelegramMessage):
+        max_size = self.config.context_management.max_upload_bytes
+        if message.document_file_size is not None and message.document_file_size > max_size:
+            raise ValueError(f"Файл слишком большой: максимум {max_size} байт.")
+        file_info = self.loop.client.get_file(message.document_file_id or "")
+        file_size = file_info.get("file_size")
+        if file_size is not None and int(file_size) > max_size:
+            raise ValueError(f"Файл слишком большой: максимум {max_size} байт.")
+        file_path = str(file_info.get("file_path") or "")
+        if not file_path:
+            raise ValueError("Telegram не вернул путь к файлу.")
+        content = self.loop.client.download_file(file_path)
+        text = decode_context_bytes(content, max_size)
+        backup_dir = self.config.context_management.backup_dir or (self.config.root_dir / "context.backups")
+        return replace_context_file(self.config.user.context_file, backup_dir, text)
 
     def _handle_private_text(self, message: TelegramMessage) -> bool:
         if message.chat.chat_type != "private" or message.is_command or not message.text:
@@ -314,6 +420,7 @@ class SecretaryApp:
             f"Owner user_id задан: {'да' if self.config.user.telegram_user_id is not None else 'нет'}\n"
             f"Summary: {'включено' if self.config.summary.enabled else 'выключено'} "
             f"({', '.join(self.config.summary.times or [])})\n"
+            f"Context management: {'включено' if self.config.context_management.enabled else 'выключено'}\n"
             f"Telegram commands menu: {self.commands_menu_status}\n"
             f"Конфиг: {self.config.path}"
         )
@@ -342,6 +449,7 @@ def _help_text() -> str:
         "/testnotify — проверить отправку уведомлений\n"
         "/testdecision — проверить путь decision -> notifier\n"
         "/summary — отправить summary вручную\n"
+        "/context — скачать текущий context.md\n"
         "/setcommands — обновить меню команд Telegram\n"
         "/reload — перечитать конфигурацию и контекст\n"
         "/whoami — показать chat_id и user_id\n"

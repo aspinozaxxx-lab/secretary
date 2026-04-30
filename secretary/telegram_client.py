@@ -2,6 +2,7 @@
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -153,6 +154,57 @@ class TelegramClient:
             chat_id=chat_id,
         )
 
+    def send_document(
+        self,
+        chat_id: int,
+        file_path: Path,
+        caption: str | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"chat_id": chat_id}
+        if caption:
+            payload["caption"] = caption
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = reply_to_message_id
+        with file_path.open("rb") as stream:
+            response = requests.post(
+                f"{self.base_url}/sendDocument",
+                data=payload,
+                files={"document": (file_path.name, stream)},
+                timeout=self.timeout_seconds,
+            )
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok"):
+            raise RuntimeError(f"Telegram sendDocument failed: {data}")
+        emit_if_present(
+            self.event_bus,
+            "outgoing",
+            caption or f"Файл отправлен: {file_path.name}",
+            direction="outgoing",
+            chat_id=chat_id,
+        )
+
+    def get_file(self, file_id: str) -> dict[str, Any]:
+        response = requests.post(
+            f"{self.base_url}/getFile",
+            json={"file_id": file_id},
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok"):
+            raise RuntimeError(f"Telegram getFile failed: {data}")
+        return dict(data.get("result") or {})
+
+    def download_file(self, file_path: str) -> bytes:
+        response = requests.get(
+            f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}",
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        return bytes(response.content)
+
 
 def parse_update(update: dict[str, Any]) -> TelegramMessage | None:
     message = update.get("message") or update.get("edited_message")
@@ -184,6 +236,7 @@ def parse_update(update: dict[str, Any]) -> TelegramMessage | None:
         if key in message
     ]
     has_attachments = bool(attachment_keys)
+    document_raw = message.get("document") if isinstance(message.get("document"), dict) else {}
     entities = list(message.get("entities") or message.get("caption_entities") or [])
     reply_to_message_id = reply_raw.get("message_id")
 
@@ -221,6 +274,10 @@ def parse_update(update: dict[str, Any]) -> TelegramMessage | None:
         reply_to_message_id=reply_to_message_id,
         reply_to_username=reply_user.get("username"),
         reply_to_text=reply_raw.get("text"),
+        document_file_id=document_raw.get("file_id"),
+        document_file_name=document_raw.get("file_name"),
+        document_file_size=document_raw.get("file_size"),
+        document_mime_type=document_raw.get("mime_type"),
         raw=message,
     )
 

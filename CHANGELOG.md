@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 0.4.1
+
+- Dobavlena owner-only komanda /context dlya otpravki tekuschego context.md v Telegram.
+- Dobavlena zagruzka novogo context.md iz private-chata vladeltsa s backup v context.backups.
+- Dobavleny TelegramClient methods send_document, get_file i download_file.
+- Dobavleny nastroyki context_management i README instruktsiya po upravleniyu context.md.
+
 ## 0.4.0
 
 - Proekt pereveden v headless Ubuntu/systemd rezhim bez Windows tray/exe sloya.

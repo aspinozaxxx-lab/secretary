@@ -21,6 +21,7 @@ tar \
     --exclude='./.git' \
     --exclude='./config.yaml' \
     --exclude='./context.md' \
+    --exclude='./context.backups' \
     --exclude='./state.json' \
     --exclude='./logs' \
     --exclude='./chat_archive' \

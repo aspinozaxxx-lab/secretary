@@ -44,6 +44,11 @@ secretary:
   max_context_messages: 80
   max_answer_chars: 3500
 
+context_management:
+  enabled: true
+  max_upload_bytes: 262144
+  backup_dir: "context.backups"
+
 archive:
   enabled: true
   dir: "chat_archive"

@@ -38,6 +38,7 @@ jobs:
           import secretary.chat_history
           import secretary.codex_client
           import secretary.config
+          import secretary.context_manager
           import secretary.decision_engine
           import secretary.events
           import secretary.logging_setup
@@ -75,6 +76,7 @@ jobs:
             --exclude='.git' \
             --exclude='config.yaml' \
             --exclude='context.md' \
+            --exclude='context.backups' \
             --exclude='state.json' \
             --exclude='logs' \
             --exclude='chat_archive' \

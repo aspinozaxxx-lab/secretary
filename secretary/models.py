@@ -41,6 +41,10 @@ class TelegramMessage:
     reply_to_message_id: int | None = None
     reply_to_username: str | None = None
     reply_to_text: str | None = None
+    document_file_id: str | None = None
+    document_file_name: str | None = None
+    document_file_size: int | None = None
+    document_mime_type: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 

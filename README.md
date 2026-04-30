@@ -75,6 +75,7 @@ Webhook, внешний IP и облачный backend не используют
 - `decision.*` - правила и batch-анализ.
 - `storage.state_file` - обычно `state.json`.
 - `logging.file` - обычно `logs/secretary.log`.
+- `context_management.*` - управление `context.md` через Telegram.
 - `archive.*` - локальный архив переписки.
 - `summary.*` - scheduled mini-summary.
 
@@ -211,6 +212,7 @@ npm install -g @openai/codex
 - `/chats` - последние известные чаты.
 - `/whoami` - показать `chat_id`, `chat_type`, `user_id`, `username`.
 - `/summary` - отправить mini-summary вручную.
+- `/context` - скачать текущий `context.md`.
 - `/testnotify` - проверить отправку тестового уведомления.
 - `/testdecision` - проверить путь `decision -> notifier -> Telegram`.
 - `/reload` - перечитать `config.yaml` и `context.md`.
@@ -218,6 +220,53 @@ npm install -g @openai/codex
 - `/help` - справка.
 
 При старте бот автоматически регистрирует меню команд Telegram через `setMyCommands`. Если меню не появилось, отправьте `/setcommands` владельцем.
+
+## Управление context.md через Telegram
+
+Команды и загрузка доступны только владельцу. Файлы принимаются только в private-чате с ботом.
+
+Чтобы скачать текущий контекст, отправьте:
+
+```text
+/context
+```
+
+Бот отправит файл `context.md` с подписью:
+
+```text
+Текущий context.md. Отредактируй и отправь обратно файлом с именем context.md.
+```
+
+Чтобы обновить контекст:
+
+1. Скачайте файл через `/context`.
+2. Отредактируйте его локально.
+3. Отправьте боту в личный чат именно document/file с именем `context.md`.
+
+Бот проверяет:
+
+- отправитель является владельцем;
+- чат private;
+- имя файла ровно `context.md`;
+- размер не больше `context_management.max_upload_bytes`, по умолчанию `262144` байт;
+- файл читается как UTF-8 или UTF-8 with BOM;
+- текст не пустой.
+
+Перед заменой старый файл сохраняется в:
+
+```text
+/opt/secretary-bot/runtime/context.backups/
+```
+
+Имя backup:
+
+```text
+context_YYYYMMDD_HHMMSS.md
+```
+
+После успешной загрузки бот перечитывает `config.yaml` и `context.md` без ручного рестарта. Если возникает ошибка, старый `context.md` остается на месте.
+
+Через Telegram нельзя скачать или заменить `config.yaml`, `state.json`, `logs/` или `chat_archive/`.
 
 ## Локальный архив
 

@@ -82,6 +82,13 @@ class SummaryConfig:
 
 
 @dataclass(slots=True)
+class ContextManagementConfig:
+    enabled: bool = True
+    max_upload_bytes: int = 262144
+    backup_dir: Path | None = None
+
+
+@dataclass(slots=True)
 class AppConfig:
     telegram: TelegramConfig
     user: UserConfig
@@ -92,6 +99,7 @@ class AppConfig:
     secretary: SecretaryConfig
     archive: ArchiveConfig
     summary: SummaryConfig
+    context_management: ContextManagementConfig
     path: Path
     root_dir: Path
     context_text: str = ""
@@ -123,6 +131,9 @@ def load_config(config_path: Path) -> AppConfig:
     summary_raw = raw.get("summary") or {}
     if not isinstance(summary_raw, dict):
         raise ValueError("Missing or invalid section: summary")
+    context_management_raw = raw.get("context_management") or {}
+    if not isinstance(context_management_raw, dict):
+        raise ValueError("Missing or invalid section: context_management")
 
     telegram = TelegramConfig(
         bot_token=_required_str(telegram_raw, "bot_token"),
@@ -189,6 +200,11 @@ def load_config(config_path: Path) -> AppConfig:
         target_chat_id=_optional_int(summary_raw.get("target_chat_id")),
         include_low_priority=bool(summary_raw.get("include_low_priority", True)),
     )
+    context_management = ContextManagementConfig(
+        enabled=bool(context_management_raw.get("enabled", True)),
+        max_upload_bytes=int(context_management_raw.get("max_upload_bytes", 262144)),
+        backup_dir=_resolve_path(root_dir, context_management_raw.get("backup_dir", "context.backups")),
+    )
 
     context_text = ""
     if user.context_file.exists():
@@ -204,6 +220,7 @@ def load_config(config_path: Path) -> AppConfig:
         secretary=secretary,
         archive=archive,
         summary=summary,
+        context_management=context_management,
         path=config_path,
         root_dir=root_dir,
         context_text=context_text,
