@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from secretary.preferences import DEFAULT_COMMUNICATION_TONE
+
 
 @dataclass(slots=True)
 class TelegramConfig:
@@ -60,14 +62,7 @@ class SecretaryConfig:
     enable_private_assistant: bool = True
     max_context_messages: int = 80
     max_answer_chars: int = 3500
-
-
-@dataclass(slots=True)
-class ArchiveConfig:
-    enabled: bool = True
-    dir: Path | None = None
-    format: str = "jsonl"
-    also_write_markdown: bool = True
+    communication_tone: str = DEFAULT_COMMUNICATION_TONE
 
 
 @dataclass(slots=True)
@@ -110,7 +105,6 @@ class AppConfig:
     storage: StorageConfig
     logging: LoggingConfig
     secretary: SecretaryConfig
-    archive: ArchiveConfig
     summary: SummaryConfig
     context_management: ContextManagementConfig
     database: DatabaseConfig
@@ -140,9 +134,6 @@ def load_config(config_path: Path) -> AppConfig:
     secretary_raw = raw.get("secretary") or {}
     if not isinstance(secretary_raw, dict):
         raise ValueError("Missing or invalid section: secretary")
-    archive_raw = raw.get("archive") or {}
-    if not isinstance(archive_raw, dict):
-        raise ValueError("Missing or invalid section: archive")
     summary_raw = raw.get("summary") or {}
     if not isinstance(summary_raw, dict):
         raise ValueError("Missing or invalid section: summary")
@@ -202,15 +193,10 @@ def load_config(config_path: Path) -> AppConfig:
         enable_private_assistant=bool(secretary_raw.get("enable_private_assistant", True)),
         max_context_messages=int(secretary_raw.get("max_context_messages", 80)),
         max_answer_chars=int(secretary_raw.get("max_answer_chars", 3500)),
-    )
-    archive_dir_value = archive_raw.get("dir", "chat_archive")
-    if archive_dir_value in (None, ""):
-        archive_dir_value = "chat_archive"
-    archive = ArchiveConfig(
-        enabled=bool(archive_raw.get("enabled", True)),
-        dir=_resolve_path(root_dir, archive_dir_value),
-        format=str(archive_raw.get("format", "jsonl")).strip().lower() or "jsonl",
-        also_write_markdown=bool(archive_raw.get("also_write_markdown", True)),
+        communication_tone=str(
+            secretary_raw.get("communication_tone", DEFAULT_COMMUNICATION_TONE)
+        ).strip()
+        or DEFAULT_COMMUNICATION_TONE,
     )
     summary = SummaryConfig(
         enabled=bool(summary_raw.get("enabled", True)),
@@ -255,7 +241,6 @@ def load_config(config_path: Path) -> AppConfig:
         storage=storage,
         logging=logging_config,
         secretary=secretary,
-        archive=archive,
         summary=summary,
         context_management=context_management,
         database=database,

@@ -4,7 +4,6 @@
 state.json
 *.tmp
 logs/
-chat_archive/
 context.backups/
 context.md
 runtime/

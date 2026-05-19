@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 0.4.3
+
+- SQLite ostavlen glavnym istochnikom istorii dlya Codex promptov; vyborki dlya decision/private assistant/summary teper uchityvayut soobscheniya po vsem rabochim chatam.
+- Dobavlena owner-only komanda /tone i runtime-sohranenie tona obscheniya v state.json.
+- Uvedomleniya sekretarya uproshcheny do razgovornogo teksta s otdelnoy ssylkoy na originalnoe soobschenie.
+- Udalen legacy file archive sloy chat_archive iz koda, config.example.yaml i CI; deploy udalyaet runtime/chat_archive.
+
 ## 0.4.2
 
 - Dobavlena SQLite-baza istorii chatov chat_history.sqlite3 s tablitsami chats, users, messages i attachments.

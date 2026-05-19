@@ -1,13 +1,14 @@
 ﻿from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
-from secretary.archive import ChatArchive
 from secretary.chat_history import format_history
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig
 from secretary.context_retriever import ContextRetriever
 from secretary.models import BatchDecisionResult, ChatHistoryEntry, DecisionResult, TelegramMessage
+from secretary.preferences import tone_prompt
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,13 +18,13 @@ class DecisionEngine:
         self,
         config: AppConfig,
         codex_client: CodexClient,
-        archive: ChatArchive | None = None,
         context_retriever: ContextRetriever | None = None,
+        get_communication_tone: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
         self.codex_client = codex_client
-        self.archive = archive
         self.context_retriever = context_retriever
+        self.get_communication_tone = get_communication_tone
 
     def decide(self, message: TelegramMessage, history: list[ChatHistoryEntry]) -> DecisionResult:
         local = self.local_rules(message)
@@ -37,7 +38,7 @@ class DecisionEngine:
             result.confidence = max(result.confidence, self.config.decision.min_confidence_to_notify)
             result.reason = "Не удалось надежно классифицировать, но сообщение похоже на важное."
             result.summary = message.text[:500]
-            result.suggested_action = "Проверьте сообщение вручную."
+            result.suggested_action = "Проверь сообщение вручную."
             result.priority = "normal"
         if result.notify and result.confidence < self.config.decision.min_confidence_to_notify:
             LOGGER.info(
@@ -87,7 +88,7 @@ class DecisionEngine:
                 )
                 codex_decision.reason = "Не удалось надежно классифицировать, но сообщение похоже на важное."
                 codex_decision.summary = message.text[:500]
-                codex_decision.suggested_action = "Проверьте сообщение вручную."
+                codex_decision.suggested_action = "Проверь сообщение вручную."
                 codex_decision.priority = "normal"
                 codex_decision.classification_error = codex_result.raw_error
             if codex_decision.notify and codex_decision.confidence < self.config.decision.min_confidence_to_notify:
@@ -110,7 +111,7 @@ class DecisionEngine:
                 confidence=1.0,
                 reason="Сообщение явно упоминает username пользователя.",
                 priority="high",
-                suggested_action="Откройте чат и ответьте при необходимости.",
+                suggested_action="Тебя явно упомянули. Лучше открыть чат и посмотреть.",
                 summary=message.text[:500],
                 source="local",
             )
@@ -122,7 +123,7 @@ class DecisionEngine:
                 confidence=1.0,
                 reason="Сообщение является reply на сообщение пользователя.",
                 priority="high",
-                suggested_action="Проверьте ответ в рабочем чате.",
+                suggested_action="Это ответ на твое сообщение. Лучше посмотреть.",
                 summary=message.text[:500],
                 source="local",
             )
@@ -134,7 +135,7 @@ class DecisionEngine:
                 confidence=1.0,
                 reason="Сообщение является reply на сообщение пользователя.",
                 priority="high",
-                suggested_action="Проверьте ответ в рабочем чате.",
+                suggested_action="Это ответ на твое сообщение. Лучше посмотреть.",
                 summary=message.text[:500],
                 source="local",
             )
@@ -148,6 +149,7 @@ class DecisionEngine:
         if message.sender and message.sender.username:
             sender = f"{sender} (@{message.sender.username})"
         attachments = "est" if message.has_attachments else "net"
+        tone = self._tone_prompt()
         return f"""
 Ty sekretar polzovatelya. Nuzhno reshit, nado li bespokoit polzovatelya iz-za Telegram-soobscheniya.
 
@@ -166,10 +168,14 @@ Pravila:
 - Esli soobschenie tolko fonovoe, ne trebuet ego resheniya ili ne kasayetsya ego zon otvetstvennosti, notify=false.
 - Esli upomyanuty aliasy ili FIO, otseni kontekst i vazhnost.
 - Ne predlagay otvechat v chat avtomaticheski.
-- Reason, suggested_action i summary pishi po-russki kirillitsey.
+- Pered resheniem izuchay istoriyu soobscheniy iz SQLite po vsem chatam: glavnyy aktualnyy istochnik hranitsya v {self._database_path()}.
+- Nije est vyborka iz SQLite: recent/search po raznym chatam. Ne delai vyvod tolko po tekuschemu soobscheniyu, esli ego smysl zavisit ot predyduschego konteksta.
+- Reason ostavlyay korotkim. Suggested_action i summary pishi prostym zhivym russkim tekstom, kotoryy mozhno pokazat polzovatelyu.
 
 Kontekst polzovatelya:
 {self.config.context_text or "Kontekst poka ne zapolnen."}
+
+{tone}
 
 Profil:
 - full_name: {self.config.user.full_name}
@@ -183,9 +189,6 @@ Chat:
 - sender: {sender}
 - message_id: {message.message_id}
 - attachments: {attachments}
-
-Lokalnyy arhiv:
-{self._archive_prompt(message.chat.chat_id)}
 
 SQLite baza i vyborka:
 {self._database_prompt_for_message(message)}
@@ -208,6 +211,7 @@ Tekuschee soobschenie:
         usernames = ", ".join(f"@{item}" for item in self.config.user.telegram_usernames) or "net"
         first = messages[0]
         message_lines = "\n".join(_format_batch_message(message) for message in messages)
+        tone = self._tone_prompt()
         additional = "Dopolnitelnyy kontekst ne zaprashivalsya."
         if additional_context is not None:
             additional = format_history(additional_context)
@@ -251,10 +255,14 @@ Pravila:
 - Esli soobschenie tolko fonovoe, ne trebuet ego resheniya ili ne kasayetsya ego zon otvetstvennosti, notify=false.
 - Ne vydumyvay fakty, kotoryh net v istorii ili context.md.
 - Ne predlagay otvechat v chat avtomaticheski.
-- Reason, suggested_action, summary i batch_summary pishi po-russki kirillitsey.
+- Pered resheniyami izuchay istoriyu soobscheniy iz SQLite po vsem chatam: glavnyy aktualnyy istochnik hranitsya v {self._database_path()}.
+- Nije est vyborka iz SQLite: recent/search po raznym chatam. Ne delai vyvod tolko po otdelnomu soobscheniyu, esli ego smysl zavisit ot predyduschego konteksta.
+- Reason ostavlyay korotkim. Suggested_action, summary i batch_summary pishi prostym zhivym russkim tekstom, kotoryy mozhno pokazat polzovatelyu.
 
 Kontekst polzovatelya:
 {self.config.context_text or "Kontekst poka ne zapolnen."}
+
+{tone}
 
 Profil:
 - full_name: {self.config.user.full_name}
@@ -265,9 +273,6 @@ Chat:
 - chat_id: {first.chat.chat_id}
 - chat_title: {first.chat.title}
 - chat_type: {first.chat.chat_type}
-
-Lokalnyy arhiv:
-{self._archive_prompt(first.chat.chat_id)}
 
 SQLite baza i vyborka:
 {self._database_prompt_for_batch(messages)}
@@ -282,11 +287,6 @@ Pachka soobscheniy:
 {message_lines}
 """.strip()
 
-    def _archive_prompt(self, current_chat_id: int | None = None) -> str:
-        if self.archive is None:
-            return "Lokalnyy arhiv chatov ne podklyuchen."
-        return self.archive.describe_for_prompt(current_chat_id=current_chat_id)
-
     def _database_prompt_for_message(self, message: TelegramMessage) -> str:
         if self.context_retriever is None:
             return "SQLite baza istorii ne podklyuchena."
@@ -296,6 +296,15 @@ Pachka soobscheniy:
         if self.context_retriever is None:
             return "SQLite baza istorii ne podklyuchena."
         return self.context_retriever.for_batch(messages)
+
+    def _tone_prompt(self) -> str:
+        if self.get_communication_tone is None:
+            return tone_prompt(self.config.secretary.communication_tone)
+        return tone_prompt(self.get_communication_tone())
+
+    def _database_path(self) -> str:
+        path = self.config.database.path or (self.config.root_dir / "chat_history.sqlite3")
+        return str(path)
 
 
 def _format_batch_message(message: TelegramMessage) -> str:

@@ -8,7 +8,6 @@ from collections.abc import Callable
 from requests import HTTPError, ReadTimeout, RequestException
 
 from secretary.batching import split_message_batches
-from secretary.archive import ChatArchive
 from secretary.database import ChatDatabase
 from secretary.decision_engine import DecisionEngine
 from secretary.events import EventBus, emit_if_present
@@ -33,7 +32,6 @@ class PollingLoop:
         handle_private_text: Callable[[TelegramMessage], bool],
         check_scheduled_tasks: Callable[[], None] | None = None,
         event_bus: EventBus | None = None,
-        archive: ChatArchive | None = None,
         database: ChatDatabase | None = None,
     ) -> None:
         self.client = client
@@ -46,7 +44,6 @@ class PollingLoop:
         self.handle_private_text = handle_private_text
         self.check_scheduled_tasks = check_scheduled_tasks
         self.event_bus = event_bus
-        self.archive = archive
         self.database = database
         self.running = True
         self._stop_event = threading.Event()
@@ -112,18 +109,6 @@ class PollingLoop:
                 if message is None:
                     continue
                 self.state.update_chat(message)
-                if self.archive is not None:
-                    archived = self.archive.archive_message(message)
-                    if archived:
-                        emit_if_present(
-                            self.event_bus,
-                            "system",
-                            "Сообщение добавлено в локальный архив",
-                            direction="system",
-                            chat_id=message.chat.chat_id,
-                            chat_title=message.chat.title,
-                            author=_message_author(message),
-                        )
                 if self.database is not None:
                     try:
                         self.database.insert_telegram_message(message)

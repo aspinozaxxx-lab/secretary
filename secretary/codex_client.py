@@ -234,7 +234,7 @@ def _fallback_result(error: str) -> DecisionResult:
         confidence=0.0,
         reason="Ne udalos nadezhno klassifitsirovat soobschenie.",
         priority="normal",
-        suggested_action="Proverit log i pri neobhodimosti soobschenie vruchnuyu.",
+        suggested_action="Проверь лог и сообщение вручную.",
         summary="Klassifikatsiya ne vypolnena.",
         source="codex",
         classification_error=error,

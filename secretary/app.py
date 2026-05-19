@@ -4,7 +4,6 @@ import logging
 import sys
 from pathlib import Path
 
-from secretary.archive import ChatArchive
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig, load_config
 from secretary.context_manager import decode_context_bytes, is_context_file_name, replace_context_file
@@ -29,6 +28,7 @@ TELEGRAM_COMMANDS = [
     {"command": "chats", "description": "Показать известные чаты"},
     {"command": "whoami", "description": "Показать мой user_id и chat_id"},
     {"command": "summary", "description": "Сделать саммари по чатам сейчас"},
+    {"command": "tone", "description": "Показать или задать тон ответов"},
     {"command": "context", "description": "Скачать текущий context.md"},
     {"command": "dbstatus", "description": "Показать состояние базы истории"},
     {"command": "search", "description": "Поиск по истории чатов"},
@@ -51,7 +51,6 @@ class SecretaryApp:
             self.config.storage.history_limit_per_chat,
         )
         self.state.load()
-        self.archive = ChatArchive(self.config)
         self.database = self._create_database()
         self.context_retriever = ContextRetriever(self.config, self.database)
         self.loop = self._build_loop()
@@ -70,7 +69,6 @@ class SecretaryApp:
         self.config = self._load_and_apply_config()
         self.state.path = self.config.storage.state_file
         self.state.history_limit_per_chat = self.config.storage.history_limit_per_chat
-        self.archive = ChatArchive(self.config)
         self.database = self._create_database()
         self.context_retriever = ContextRetriever(self.config, self.database)
         self._apply_runtime_components(self.loop)
@@ -93,7 +91,6 @@ class SecretaryApp:
             handle_private_text=self._handle_private_text,
             check_scheduled_tasks=self._check_scheduled_tasks,
             event_bus=self.event_bus,
-            archive=self.archive,
             database=self.database,
         )
 
@@ -102,7 +99,6 @@ class SecretaryApp:
         loop.client = client
         loop.decision_engine = decision_engine
         loop.notifier = notifier
-        loop.archive = self.archive
         loop.database = self.database
         self.assistant = assistant
         self.summary_service = SummaryService(
@@ -110,9 +106,9 @@ class SecretaryApp:
             self.state,
             client,
             codex_client,
-            self.archive,
             self.event_bus,
             self.context_retriever,
+            self._communication_tone,
         )
 
     def _create_runtime_components(
@@ -126,18 +122,18 @@ class SecretaryApp:
             self.config.codex.prompt_max_chars,
             event_bus=self.event_bus,
         )
-        decision_engine = DecisionEngine(self.config, codex_client, self.archive, self.context_retriever)
-        notifier = Notifier(client, self.config.telegram, self.event_bus)
-        assistant = SecretaryAssistant(self.config, self.state, codex_client, self.archive, self.context_retriever)
+        decision_engine = DecisionEngine(self.config, codex_client, self.context_retriever, self._communication_tone)
+        notifier = Notifier(client, self.config.telegram, self.event_bus, self._communication_tone)
+        assistant = SecretaryAssistant(self.config, self.state, codex_client, self.context_retriever, self._communication_tone)
         self.assistant = assistant
         self.summary_service = SummaryService(
             self.config,
             self.state,
             client,
             codex_client,
-            self.archive,
             self.event_bus,
             self.context_retriever,
+            self._communication_tone,
         )
         return client, codex_client, decision_engine, notifier, assistant
 
@@ -160,7 +156,7 @@ class SecretaryApp:
         LOGGER.info("Python version: %s", sys.version.split()[0])
         LOGGER.info("Project root: %s", self.config.root_dir)
         LOGGER.info("Config loaded: %s", self.config.path)
-        LOGGER.info("Archive dir: %s", self.config.archive.dir)
+        LOGGER.info("SQLite history path: %s", self.config.database.path)
         codex_client = self.loop.decision_engine.codex_client
         LOGGER.info("Codex command resolved: %s", "yes" if codex_client.resolve_command() else "no")
         emit_if_present(
@@ -238,6 +234,7 @@ class SecretaryApp:
             "/testnotify",
             "/testdecision",
             "/summary",
+            "/tone",
             "/context",
             "/dbstatus",
             "/search",
@@ -251,6 +248,7 @@ class SecretaryApp:
             "/testnotify",
             "/testdecision",
             "/summary",
+            "/tone",
             "/context",
             "/dbstatus",
             "/search",
@@ -317,6 +315,12 @@ class SecretaryApp:
             client.send_message(
                 message.chat.chat_id,
                 "Summary отправлено." if ok else "Summary не отправлено, смотри лог.",
+                reply_to_message_id=message.message_id,
+            )
+        elif command == "/tone":
+            client.send_message(
+                message.chat.chat_id,
+                self._tone_text(message.text),
                 reply_to_message_id=message.message_id,
             )
         elif command == "/context":
@@ -485,6 +489,7 @@ class SecretaryApp:
             f"Известных чатов: {self.state.known_chats_count()}\n"
             f"Режим доступа: {access_mode}\n"
             f"Личный секретарь: {'включен' if self.config.secretary.enable_private_assistant else 'выключен'}\n"
+            f"Тон общения: {self._communication_tone()}\n"
             f"Owner user_id задан: {'да' if self.config.user.telegram_user_id is not None else 'нет'}\n"
             f"Summary: {'включено' if self.config.summary.enabled else 'выключено'} "
             f"({', '.join(self.config.summary.times or [])})\n"
@@ -558,6 +563,17 @@ class SecretaryApp:
             f"итог: {status.get('summary')}"
         )
 
+    def _communication_tone(self) -> str:
+        return self.state.get_communication_tone(self.config.secretary.communication_tone)
+
+    def _tone_text(self, text: str) -> str:
+        value = (text or "").split(maxsplit=1)
+        if len(value) < 2 or not value[1].strip():
+            return f"Сейчас тон такой: {self._communication_tone()}\n\nЧтобы поменять: /tone приветливый и краткий"
+        tone = self.state.set_communication_tone(value[1])
+        self.state.save()
+        return f"Ок, теперь тон такой: {tone}"
+
 
 def _help_text() -> str:
     return (
@@ -568,6 +584,7 @@ def _help_text() -> str:
         "/testnotify — проверить отправку уведомлений\n"
         "/testdecision — проверить путь decision -> notifier\n"
         "/summary — отправить summary вручную\n"
+        "/tone текст — показать или задать тон общения\n"
         "/context — скачать текущий context.md\n"
         "/dbstatus — состояние базы истории\n"
         "/search текст — поиск по истории чатов\n"

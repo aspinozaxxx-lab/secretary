@@ -33,7 +33,6 @@ jobs:
         run: |
           python - <<'PY'
           import secretary.app
-          import secretary.archive
           import secretary.batching
           import secretary.chat_history
           import secretary.codex_client
@@ -82,7 +81,6 @@ jobs:
             --exclude='context.backups' \
             --exclude='state.json' \
             --exclude='logs' \
-            --exclude='chat_archive' \
             --exclude='runtime' \
             --exclude='media' \
             --exclude='Download' \

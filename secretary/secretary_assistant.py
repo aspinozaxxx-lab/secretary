@@ -1,11 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-from secretary.archive import ChatArchive
+from collections.abc import Callable
+
 from secretary.chat_history import format_history
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig
 from secretary.context_retriever import ContextRetriever
 from secretary.models import CodexAnswerResult, TelegramMessage
+from secretary.preferences import tone_prompt
 from secretary.state import StateStore
 
 
@@ -15,14 +17,14 @@ class SecretaryAssistant:
         config: AppConfig,
         state: StateStore,
         codex_client: CodexClient,
-        archive: ChatArchive | None = None,
         context_retriever: ContextRetriever | None = None,
+        get_communication_tone: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
         self.state = state
         self.codex_client = codex_client
-        self.archive = archive
         self.context_retriever = context_retriever
+        self.get_communication_tone = get_communication_tone
 
     def answer(self, message: TelegramMessage) -> CodexAnswerResult:
         history = self.state.get_recent_messages(
@@ -44,11 +46,10 @@ Ty lokalnyy Telegram-sekretar polzovatelya. Otvechay kratko i po delu na russkom
 Kontekst polzovatelya:
 {self.config.context_text or "Kontekst poka ne zapolnen."}
 
+{self._tone_prompt()}
+
 Vopros polzovatelya:
 {question}
-
-Lokalnyy arhiv chatov:
-{self._archive_prompt()}
 
 SQLite baza i vyborka:
 {database_context}
@@ -59,6 +60,7 @@ Poslednie soobscheniya iz izvestnyh rabochih chatov:
 Instruktsii:
 - Ne vydumyvay fakty.
 - Esli dannyh v dostupnoy istorii nedostatochno, pryamo skazhi, chto v dostupnoy istorii etogo ne vidno.
+- Glavnyy aktualnyy istochnik istorii - SQLite baza {self._database_path()}; uchityvay istoriyu po vsem rabochim chatam, a ne tolko poslednie soobscheniya.
 - Mozhno ssylatsya na nazvanie chata, avtora, vremya i tekst soobscheniya.
 - Verni obychnyy tekst otveta, ne JSON i ne markdown-tablitsu.
 - Ne pishi slishkom dlinno.
@@ -66,15 +68,19 @@ Instruktsii:
 - Ne predlagay deystviya, kotorye bot ne umeet vypolnyat.
 """.strip()
 
-    def _archive_prompt(self) -> str:
-        if self.archive is None:
-            return "Lokalnyy arhiv chatov ne podklyuchen."
-        return self.archive.describe_for_prompt()
-
     def _database_prompt(self, question: str) -> str:
         if self.context_retriever is None:
             return "SQLite baza istorii ne podklyuchena."
         return self.context_retriever.for_question(question, self.config.secretary.max_context_messages)
+
+    def _tone_prompt(self) -> str:
+        if self.get_communication_tone is None:
+            return tone_prompt(self.config.secretary.communication_tone)
+        return tone_prompt(self.get_communication_tone())
+
+    def _database_path(self) -> str:
+        path = self.config.database.path or (self.config.root_dir / "chat_history.sqlite3")
+        return str(path)
 
 
 def _trim_answer(answer: str, max_chars: int) -> str:

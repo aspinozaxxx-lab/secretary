@@ -1,6 +1,6 @@
 ﻿# Telegram Secretary Bot
 
-Headless Telegram-бот для Ubuntu server. Бот работает через Telegram Bot API long polling, анализирует сообщения через локальный Codex CLI, ведет локальный архив переписки и уведомляет владельца, если сообщение требует внимания.
+Headless Telegram-бот для Ubuntu server. Бот работает через Telegram Bot API long polling, анализирует сообщения через локальный Codex CLI, хранит историю в SQLite и уведомляет владельца, если сообщение требует внимания.
 
 Webhook, внешний IP и облачный backend не используются. Основной режим запуска - systemd service.
 
@@ -15,7 +15,6 @@ Webhook, внешний IP и облачный backend не используют
     context.md
     state.json
     logs/
-    chat_archive/
     chat_history.sqlite3
     media/
 ```
@@ -25,9 +24,8 @@ Webhook, внешний IP и облачный backend не используют
 - `runtime/` - пользовательские и рабочие данные, не перетираются при deploy.
 - `runtime/config.yaml` - реальные настройки и Telegram token.
 - `runtime/context.md` - пользовательский контекст для Codex.
-- `runtime/state.json` - offset, известные чаты, rolling history и служебное состояние.
+- `runtime/state.json` - offset, известные чаты, rolling history, тон общения и служебное состояние.
 - `runtime/logs/` - файловые логи.
-- `runtime/chat_archive/` - локальный архив видимых боту сообщений.
 - `runtime/chat_history.sqlite3` - SQLite-база истории чатов.
 - `runtime/media/` - вложения и картинки, импортированные из Telegram export.
 
@@ -79,15 +77,15 @@ Webhook, внешний IP и облачный backend не используют
 - `decision.*` - правила и batch-анализ.
 - `storage.state_file` - обычно `state.json`.
 - `logging.file` - обычно `logs/secretary.log`.
+- `secretary.communication_tone` - тон по умолчанию для уведомлений, ответов и summary. Его можно поменять командой `/tone`.
 - `context_management.*` - управление `context.md` через Telegram.
-- `archive.*` - локальный архив переписки.
 - `database.*` - SQLite-база истории и папка media.
 - `telegram_export.import_dir` - опциональный путь для CLI-импорта Telegram export.
 - `summary.*` - scheduled mini-summary.
 
 Заполните `context.md`: роли, проекты, зоны ответственности, темы, которые вас касаются, и примеры важных/неважных сообщений.
 
-`config.yaml`, `context.md`, `.env`, `state.json`, `logs/`, `chat_archive/`, `chat_history.sqlite3`, `media/` и выгрузки `Download/` не коммитятся.
+`config.yaml`, `context.md`, `.env`, `state.json`, `logs/`, `chat_history.sqlite3`, `media/` и выгрузки `Download/` не коммитятся.
 
 ## Runtime paths
 
@@ -102,11 +100,10 @@ Webhook, внешний IP и облачный backend не используют
 - `context.md` -> `/opt/secretary-bot/runtime/context.md`
 - `state.json` -> `/opt/secretary-bot/runtime/state.json`
 - `logs/secretary.log` -> `/opt/secretary-bot/runtime/logs/secretary.log`
-- `chat_archive` -> `/opt/secretary-bot/runtime/chat_archive`
 - `chat_history.sqlite3` -> `/opt/secretary-bot/runtime/chat_history.sqlite3`
 - `media` -> `/opt/secretary-bot/runtime/media`
 
-Codex запускается из runtime-папки, поэтому в read-only режиме видит `context.md`, `state.json`, `chat_archive/`, `chat_history.sqlite3` и `media/`. Основной путь все равно безопасный: бот сам делает SQLite-выборки и передает Codex только релевантный срез.
+Codex запускается из runtime-папки, поэтому в read-only режиме видит `context.md`, `state.json`, `chat_history.sqlite3` и `media/`. Главный источник истории - SQLite: бот сам делает выборки по всем рабочим чатам и передает Codex релевантный срез.
 
 ## Systemd service
 
@@ -157,7 +154,7 @@ deploy/server/deploy.sh
 
 `bootstrap.sh` создает `/opt/secretary-bot`, ставит системные зависимости, создает venv, ставит Codex CLI, копирует systemd unit и создает `config.yaml/context.md` из example только если их нет.
 
-`deploy.sh` обновляет только `/opt/secretary-bot/app`, ставит Python dependencies, обновляет unit и перезапускает service. Runtime не удаляется и не копируется из release. База `chat_history.sqlite3` и `media/` не перетираются.
+`deploy.sh` обновляет только `/opt/secretary-bot/app`, ставит Python dependencies, обновляет unit и перезапускает service. Runtime не копируется из release. База `chat_history.sqlite3` и `media/` не перетираются. Legacy-папка `runtime/chat_archive/` удаляется при deploy, потому что история теперь хранится в SQLite.
 
 ## GitHub Actions deploy
 
@@ -220,6 +217,7 @@ npm install -g @openai/codex
 - `/chats` - последние известные чаты.
 - `/whoami` - показать `chat_id`, `chat_type`, `user_id`, `username`.
 - `/summary` - отправить mini-summary вручную.
+- `/tone текст` - показать или задать тон общения для уведомлений, ответов и summary.
 - `/context` - скачать текущий `context.md`.
 - `/dbstatus` - показать состояние SQLite-базы истории.
 - `/search текст` - поиск по истории чатов.
@@ -277,11 +275,11 @@ context_YYYYMMDD_HHMMSS.md
 
 После успешной загрузки бот перечитывает `config.yaml` и `context.md` без ручного рестарта. Если возникает ошибка, старый `context.md` остается на месте.
 
-Через Telegram нельзя скачать или заменить `config.yaml`, `state.json`, `logs/` или `chat_archive/`.
+Через Telegram нельзя скачать или заменить `config.yaml`, `state.json` или `logs/`.
 
 ## SQLite history database
 
-Бот дополнительно хранит историю чатов в SQLite:
+Бот хранит актуальную историю чатов в SQLite:
 
 ```text
 /opt/secretary-bot/runtime/chat_history.sqlite3
@@ -298,7 +296,7 @@ context_YYYYMMDD_HHMMSS.md
 
 Если FTS5 недоступен, бот автоматически использует LIKE-поиск и не падает.
 
-Новые сообщения, которые бот видит через Bot API, записываются в `state.json`, `chat_archive/` и SQLite. Telegram Bot API не позволяет получить старую историю до добавления бота, поэтому старые сообщения можно добавить только разовым импортом выгрузки Telegram.
+Новые сообщения, которые бот видит через Bot API, записываются в `state.json` и SQLite. Telegram Bot API не позволяет получить старую историю до добавления бота, поэтому старые сообщения можно добавить только разовым импортом выгрузки Telegram.
 
 Проверить базу на сервере:
 
@@ -320,35 +318,13 @@ context_YYYYMMDD_HHMMSS.md
 
 Импорт идемпотентный: повторный запуск не должен плодить дубли сообщений. Вложения копируются в `runtime/media/<chat_id>/...`, исходная выгрузка не удаляется.
 
-После импорта `/summary` и личный режим секретаря используют SQLite-выборки. Codex получает:
+При анализе сообщений, `/summary` и вопросах личному секретарю Codex получает SQLite-выборки:
 
 - путь к базе;
 - путь к media;
 - целевые чаты, если их удалось определить по вопросу или текущему сообщению;
-- последние и найденные сообщения;
+- последние и найденные сообщения по всем рабочим чатам;
 - ссылки на вложения, если они есть в выборке.
-
-## Локальный архив
-
-Бот сохраняет только сообщения, которые реально видит через Bot API после запуска или добавления в чат. Старую историю Telegram получить нельзя.
-
-Архив лежит тут:
-
-```text
-/opt/secretary-bot/runtime/chat_archive
-```
-
-Структура:
-
-```text
-chat_archive/
-  chats_index.json
-  <chat_id>_<safe_title>/
-    messages.jsonl
-    messages.md
-```
-
-Deploy не перетирает `chat_archive/`.
 
 ## Проверка после deploy
 
@@ -368,6 +344,7 @@ ls -la /opt/secretary-bot/runtime
 /status
 /chats
 /testnotify
+/tone
 /summary
 ```
 

@@ -2,15 +2,16 @@
 
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from secretary.archive import ChatArchive
 from secretary.chat_history import format_history
 from secretary.codex_client import CodexClient
 from secretary.config import AppConfig
 from secretary.context_retriever import ContextRetriever
 from secretary.events import EventBus, emit_if_present
+from secretary.preferences import tone_prompt
 from secretary.state import StateStore
 from secretary.telegram_client import TelegramClient
 
@@ -24,17 +25,17 @@ class SummaryService:
         state: StateStore,
         client: TelegramClient,
         codex_client: CodexClient,
-        archive: ChatArchive,
         event_bus: EventBus | None = None,
         context_retriever: ContextRetriever | None = None,
+        get_communication_tone: Callable[[], str] | None = None,
     ) -> None:
         self.config = config
         self.state = state
         self.client = client
         self.codex_client = codex_client
-        self.archive = archive
         self.event_bus = event_bus
         self.context_retriever = context_retriever
+        self.get_communication_tone = get_communication_tone
         self._last_check_monotonic = 0.0
 
     def send_due_summaries(self) -> None:
@@ -100,15 +101,14 @@ Ty lokalnyy Telegram-sekretar polzovatelya. Sdelay kratkoe mini-summary po raboc
 Kontekst polzovatelya:
 {self.config.context_text or "Kontekst poka ne zapolnen."}
 
+{self._tone_prompt()}
+
 Parametry:
 - schedule_time: {schedule_time}
 - timezone: {self.config.summary.timezone}
 - now: {now.isoformat(timespec="seconds")}
 - lookback_hours: {self.config.summary.lookback_hours}
 - include_low_priority: {self.config.summary.include_low_priority}
-
-Lokalnyy arhiv:
-{self.archive.describe_for_prompt()}
 
 SQLite baza i vyborka:
 {database_context}
@@ -119,6 +119,7 @@ Soobscheniya za period:
 Instruktsii:
 - Verni obychnyy tekst, ne JSON.
 - Ne vydumyvay.
+- Glavnyy aktualnyy istochnik istorii - SQLite baza {self._database_path()}; smotri kontekst po vsem rabochim chatam.
 - Gruppiruy po chatam/proektam, esli eto umestno.
 - Esli vazhnogo net ili dannyh malo, skazhi eto pryamo.
 - Ne raskryvay bot token/config secrets.
@@ -131,6 +132,15 @@ Instruktsii:
             self.config.summary.lookback_hours,
             self.config.summary.max_messages,
         )
+
+    def _tone_prompt(self) -> str:
+        if self.get_communication_tone is None:
+            return tone_prompt(self.config.secretary.communication_tone)
+        return tone_prompt(self.get_communication_tone())
+
+    def _database_path(self) -> str:
+        path = self.config.database.path or (self.config.root_dir / "chat_history.sqlite3")
+        return str(path)
 
 
 def _scheduled_datetime(now: datetime, schedule_time: str) -> datetime:

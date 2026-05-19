@@ -450,9 +450,11 @@ class ChatDatabase:
             f"SQLite database path: {self.path}",
             f"Media dir: {self.media_dir}",
             f"FTS enabled: {'yes' if self.fts_enabled else 'no'}",
-            "Bot gotovit vyborku sam; esli Codex mojet chitat fayly v read-only cwd, baza i media dostupny tolko dlya chteniya.",
+            "Eto glavnoe aktualnoe hranilische istorii po vsem chatam.",
+            "Bot gotovit vyborku sam: search hits i recent messages mogut byt iz raznyh rabochih chatov.",
+            "Esli Codex mojet chitat fayly v read-only cwd, SQLite baza i media dostupny tolko dlya chteniya.",
             "",
-            "Targeted chats:",
+            "Known/relevant chats:",
         ]
         chats = targeted_chats or []
         if chats:

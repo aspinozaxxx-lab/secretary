@@ -19,9 +19,14 @@ class ContextRetriever:
         query = " ".join([message.chat.title or "", message.text or ""])
         keywords = self._keywords(query)
         targeted = self._targeted_chats(keywords, current_chat_id=message.chat.chat_id)
-        chat_ids = [int(chat["chat_id"]) for chat in targeted] or [message.chat.chat_id]
-        recent = self.database.get_recent_messages(limit=40, chat_ids=chat_ids, include_private=False)
-        hits = self.database.search_messages(message.text or query, limit=30, chat_ids=chat_ids)
+        current_recent = self.database.get_recent_messages(
+            limit=30,
+            chat_ids=[message.chat.chat_id],
+            include_private=False,
+        )
+        global_recent = self.database.get_recent_messages(limit=40, include_private=False)
+        recent = _merge_messages(current_recent, global_recent, limit=60)
+        hits = self.database.search_messages(message.text or query, limit=40)
         return self.database.export_context_for_codex(
             title="SQLite context for current message:",
             targeted_chats=targeted,
@@ -37,9 +42,14 @@ class ContextRetriever:
         query = " ".join([first.chat.title or "", " ".join(message.text or "" for message in messages)])
         keywords = self._keywords(query)
         targeted = self._targeted_chats(keywords, current_chat_id=first.chat.chat_id)
-        chat_ids = [int(chat["chat_id"]) for chat in targeted] or [first.chat.chat_id]
-        recent = self.database.get_recent_messages(limit=60, chat_ids=chat_ids, include_private=False)
-        hits = self.database.search_messages(query, limit=40, chat_ids=chat_ids)
+        current_recent = self.database.get_recent_messages(
+            limit=40,
+            chat_ids=[first.chat.chat_id],
+            include_private=False,
+        )
+        global_recent = self.database.get_recent_messages(limit=50, include_private=False)
+        recent = _merge_messages(current_recent, global_recent, limit=80)
+        hits = self.database.search_messages(query, limit=50)
         return self.database.export_context_for_codex(
             title="SQLite context for batch decision:",
             targeted_chats=targeted,
@@ -53,10 +63,9 @@ class ContextRetriever:
             return "SQLite baza istorii ne podklyuchena."
         keywords = self._keywords(question)
         targeted = self._targeted_chats(keywords)
-        chat_ids = [int(chat["chat_id"]) for chat in targeted] or None
-        hits = self.database.search_messages(question, limit=max_messages, chat_ids=chat_ids)
+        hits = self.database.search_messages(question, limit=max_messages)
         recent_limit = max(20, max_messages - len(hits))
-        recent = self.database.get_recent_messages(limit=recent_limit, chat_ids=chat_ids, include_private=False)
+        recent = self.database.get_recent_messages(limit=recent_limit, include_private=False)
         return self.database.export_context_for_codex(
             title="SQLite context for private secretary question:",
             targeted_chats=targeted,
@@ -108,3 +117,18 @@ class ContextRetriever:
                 seen.add(lowered)
                 result.append(lowered)
         return result[:30]
+
+
+def _merge_messages(*groups, limit: int):
+    result = []
+    seen = set()
+    for group in groups:
+        for message in group:
+            key = (message.chat_id, message.message_id, message.date, message.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(message)
+            if len(result) >= limit:
+                return result
+    return result

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from secretary.models import ChatHistoryEntry, TelegramMessage
+from secretary.preferences import normalize_communication_tone
 
 
 class StateStore:
@@ -17,6 +18,7 @@ class StateStore:
             "last_update_id": None,
             "chats": {},
             "last_summary_sent": {},
+            "preferences": {},
         }
 
     def load(self) -> None:
@@ -28,6 +30,7 @@ class StateStore:
             self.data.update(loaded)
         self.data.setdefault("chats", {})
         self.data.setdefault("last_summary_sent", {})
+        self.data.setdefault("preferences", {})
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,6 +208,15 @@ class StateStore:
 
     def mark_summary_sent(self, schedule_time: str, date_key: str) -> None:
         self.data.setdefault("last_summary_sent", {})[schedule_time] = date_key
+
+    def get_communication_tone(self, default: str | None = None) -> str:
+        preferences = self.data.setdefault("preferences", {})
+        return normalize_communication_tone(preferences.get("communication_tone") or default)
+
+    def set_communication_tone(self, value: str | None) -> str:
+        tone = normalize_communication_tone(value)
+        self.data.setdefault("preferences", {})["communication_tone"] = tone
+        return tone
 
     def known_chats_count(self) -> int:
         return len(self.data.get("chats", {}))
