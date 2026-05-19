@@ -80,4 +80,5 @@ systemctl restart secretary-bot.service
 sleep 3
 systemctl status secretary-bot.service --no-pager || true
 journalctl -u secretary-bot.service -n 100 --no-pager || true
+"$VENV_DIR/bin/python" "$APP_DIR/main.py" --config "$RUNTIME_DIR/config.yaml" db-status || true
 systemctl is-active --quiet secretary-bot.service
