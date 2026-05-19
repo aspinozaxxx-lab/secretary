@@ -67,6 +67,7 @@ def _db_status(config_path: Path) -> int:
     print(f"messages: {stats.messages}")
     print(f"attachments: {stats.attachments}")
     print(f"fts_enabled: {'yes' if stats.fts_enabled else 'no'}")
+    print(f"fts_messages: {stats.fts_messages if stats.fts_messages is not None else 'none'}")
     print(f"last_import_at: {stats.last_import_at or 'none'}")
     print(f"last_import_summary: {stats.last_import_summary or 'none'}")
     return 0

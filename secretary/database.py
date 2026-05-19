@@ -20,6 +20,7 @@ class DatabaseStats:
     messages: int
     attachments: int
     fts_enabled: bool
+    fts_messages: int | None = None
     last_import_source: str | None = None
     last_import_at: str | None = None
     last_import_summary: str | None = None
@@ -123,6 +124,8 @@ class ChatDatabase:
                 """
             )
             self.fts_enabled = self._ensure_fts(conn)
+            if self.fts_enabled:
+                self._rebuild_fts_if_needed(conn)
 
     def upsert_chat(self, chat: TelegramChat | dict[str, Any], source: str = "bot", seen_at: str | None = None) -> None:
         item = _chat_dict(chat)
@@ -479,6 +482,7 @@ class ChatDatabase:
             chats = int(conn.execute("SELECT COUNT(*) FROM chats").fetchone()[0])
             messages = int(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0])
             attachments = int(conn.execute("SELECT COUNT(*) FROM attachments").fetchone()[0])
+            fts_messages = self._fts_count(conn) if self.fts_enabled else None
             import_row = conn.execute(
                 "SELECT source, imported_at, summary FROM imports ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -489,6 +493,7 @@ class ChatDatabase:
             messages=messages,
             attachments=attachments,
             fts_enabled=self.fts_enabled,
+            fts_messages=fts_messages,
             last_import_source=import_row["source"] if import_row else None,
             last_import_at=import_row["imported_at"] if import_row else None,
             last_import_summary=import_row["summary"] if import_row else None,
@@ -539,14 +544,17 @@ class ChatDatabase:
         if not self.requested_fts_enabled:
             return False
         try:
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='message_fts'"
+            ).fetchone()
+            if row is not None and _is_legacy_fts_schema(str(row["sql"] or "")):
+                conn.execute("DROP TABLE message_fts")
             conn.execute(
                 """
                 CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
                     text,
                     sender_name,
-                    chat_title,
-                    content='messages',
-                    content_rowid='id'
+                    chat_title
                 )
                 """
             )
@@ -578,6 +586,35 @@ class ChatDatabase:
             )
         except sqlite3.Error:
             self.fts_enabled = False
+
+    def _rebuild_fts_if_needed(self, conn: sqlite3.Connection) -> None:
+        try:
+            message_count = int(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0])
+            fts_count = self._fts_count(conn)
+        except sqlite3.Error:
+            self.fts_enabled = False
+            return
+        if fts_count == message_count:
+            return
+        try:
+            conn.execute("DELETE FROM message_fts")
+            conn.execute(
+                """
+                INSERT INTO message_fts(rowid, text, sender_name, chat_title)
+                SELECT
+                    m.id,
+                    COALESCE(m.text, ''),
+                    COALESCE(m.sender_name, ''),
+                    COALESCE(c.title, '')
+                FROM messages m
+                LEFT JOIN chats c ON c.chat_id = m.chat_id
+                """
+            )
+        except sqlite3.Error:
+            self.fts_enabled = False
+
+    def _fts_count(self, conn: sqlite3.Connection) -> int:
+        return int(conn.execute("SELECT COUNT(*) FROM message_fts").fetchone()[0])
 
     def _search_fts(
         self,
@@ -731,6 +768,11 @@ def _keywords(text: str) -> list[str]:
 def _fts_token(token: str) -> str:
     cleaned = re.sub(r"[^\wА-Яа-яЁё-]", "", token, flags=re.UNICODE)
     return f'"{cleaned}"' if cleaned else '""'
+
+
+def _is_legacy_fts_schema(sql: str) -> bool:
+    normalized = re.sub(r"\s+", " ", sql or "").lower()
+    return "content='messages'" in normalized or 'content="messages"' in normalized
 
 
 def _one_line(text: str, limit: int = 300) -> str:

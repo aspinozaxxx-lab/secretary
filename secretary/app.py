@@ -524,6 +524,7 @@ class SecretaryApp:
             f"сообщения: {stats.messages}\n"
             f"attachments: {stats.attachments}\n"
             f"FTS: {'да' if stats.fts_enabled else 'нет'}\n"
+            f"FTS messages: {stats.fts_messages if stats.fts_messages is not None else 'нет'}\n"
             f"media dir: {stats.media_dir}\n"
             f"последний импорт: {stats.last_import_at or 'нет'}"
         )
