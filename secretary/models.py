@@ -10,6 +10,8 @@ class TelegramUser:
     username: str | None
     full_name: str
     is_bot: bool = False
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 @dataclass(slots=True)

@@ -6,6 +6,7 @@
 - Dobavlena owner-only komanda /tone i runtime-sohranenie tona obscheniya v state.json.
 - Uvedomleniya sekretarya uproshcheny do razgovornogo teksta s otdelnoy ssylkoy na originalnoe soobschenie.
 - Udalen legacy file archive sloy chat_archive iz koda, config.example.yaml i CI; deploy udalyaet runtime/chat_archive.
+- Ispravlena zapis Telegram users v SQLite: first_name/last_name teper korrektno popadayut v model.
 
 ## 0.4.2
 

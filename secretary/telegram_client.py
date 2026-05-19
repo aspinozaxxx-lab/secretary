@@ -247,6 +247,8 @@ def parse_update(update: dict[str, Any]) -> TelegramMessage | None:
             username=sender_raw.get("username"),
             full_name=_full_name(sender_raw),
             is_bot=bool(sender_raw.get("is_bot")),
+            first_name=sender_raw.get("first_name"),
+            last_name=sender_raw.get("last_name"),
         )
 
     return TelegramMessage(
